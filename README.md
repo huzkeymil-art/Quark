@@ -23,7 +23,8 @@ Quark picks the best available reasoning backend automatically:
 | --- | --- | --- |
 | 1 | **Anthropic** (`claude-opus-4-8`, adaptive thinking) | `ANTHROPIC_API_KEY` is set |
 | 2 | **OpenRouter** (gateway → Claude, OpenAI-compatible) | `OPENROUTER_API_KEY` is set |
-| 3 | **Demo mode** (local math engine) | no key set |
+| 3 | **Groq** (fast open models, OpenAI-compatible) | `GROQ_API_KEY` is set |
+| 4 | **Demo mode** (local math engine) | no key set |
 
 The key never reaches the browser — all AI calls run server-side in
 `app/api/solve/route.ts` and stream back to the client.
@@ -53,9 +54,21 @@ ANTHROPIC_API_KEY=sk-ant-...
 # Option B — OpenRouter (routes to Claude)
 OPENROUTER_API_KEY=sk-or-v1-...
 OPENROUTER_MODEL=anthropic/claude-3.5-sonnet   # optional override
+
+# Option C — Groq (fast open models)
+GROQ_API_KEY=gsk_...
+GROQ_MODEL=llama-3.3-70b-versatile             # optional override
 ```
 
 `.env.local` is gitignored. Never commit a key.
+
+## ☁️ Deploy a live preview (Vercel)
+
+1. Go to **vercel.com → New Project** and import this GitHub repo.
+2. Add one environment variable (e.g. `GROQ_API_KEY`, or `OPENROUTER_API_KEY` / `ANTHROPIC_API_KEY`).
+3. Deploy. You get a public `https://…vercel.app` URL — open it on any device.
+
+No env var? It still deploys and runs in demo mode.
 
 ## 🛠 Tech
 
