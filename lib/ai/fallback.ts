@@ -97,7 +97,7 @@ export function solveOffline(question: string, gradeId: string): string {
     "",
     `> ${escapeMd(q)}`,
     "",
-    `This needs full natural-language reasoning, which is available when Quark is connected to the Anthropic API. In offline demo mode I can still solve things like:`,
+    `This needs full natural-language reasoning, which is available when Quark is connected to an AI provider (Gemini, Claude, and more). In offline demo mode I can still solve things like:`,
     "",
     "- Arithmetic & expressions — *e.g.* `12 * (3 + 4)^2`",
     "- Derivatives — *e.g.* `derivative of x^3 + 2x`",
@@ -109,7 +109,7 @@ export function solveOffline(question: string, gradeId: string): string {
 }
 
 function demoNote(): string {
-  return "_Demo mode — solved locally with Quark's math engine. Add an `ANTHROPIC_API_KEY` to unlock full Claude reasoning for word problems and proofs._";
+  return "*Demo mode — solved locally with Quark's math engine. Add a `GEMINI_API_KEY` (or another provider key) to unlock full AI reasoning for word problems and proofs.*";
 }
 
 /** Best-effort extraction of a mathjs-evaluable expression from prose. */

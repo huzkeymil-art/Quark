@@ -167,6 +167,8 @@ function inline(s: string): string {
   );
   str = str.replace(/\*\*([^*]+)\*\*/g, '<strong class="text-chalk font-semibold">$1</strong>');
   str = str.replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>");
+  // Underscore italics, but not inside identifiers like file_name.
+  str = str.replace(/(^|[^A-Za-z0-9_])_([^_\n]+?)_(?![A-Za-z0-9_])/g, "$1<em>$2</em>");
 
   str = str.replace(/QKMATH(\d+)ENDQK/g, (_m, i) => inlineChunks[Number(i)] ?? "");
   return str;
