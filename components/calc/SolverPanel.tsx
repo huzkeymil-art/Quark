@@ -10,15 +10,24 @@ const EXAMPLES = [
   "A train leaves at 60 mph and another at 80 mph 50 miles behind. When does it catch up?",
   "derivative of x^3 + 2x^2 - 5x",
   "Solve 2x² + 3x − 5 = 0 and explain each step",
+  "Integrate x·e^x dx and explain each step",
   "What is 15% of 240, and why?",
 ];
+
+const PROVIDER_LABEL: Record<string, string> = {
+  gemini: "Gemini",
+  anthropic: "Claude",
+  openrouter: "OpenRouter",
+  groq: "Groq",
+  demo: "Demo mode · local engine",
+};
 
 export default function SolverPanel() {
   const [question, setQuestion] = useState("");
   const [grade, setGrade] = useState("g11");
   const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState(false);
-  const [mode, setMode] = useState<"live" | "demo" | null>(null);
+  const [provider, setProvider] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const add = useNotebook((s) => s.add);
   const [saved, setSaved] = useState(false);
@@ -29,7 +38,7 @@ export default function SolverPanel() {
     setBusy(true);
     setAnswer("");
     setSaved(false);
-    setMode(null);
+    setProvider(null);
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -41,7 +50,7 @@ export default function SolverPanel() {
         body: JSON.stringify({ question: prompt, grade }),
         signal: controller.signal,
       });
-      setMode((res.headers.get("X-Quark-Mode") as "live" | "demo") ?? "demo");
+      setProvider(res.headers.get("X-Quark-Provider") ?? "demo");
       if (!res.body) throw new Error("No response stream");
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -118,7 +127,7 @@ export default function SolverPanel() {
 
       <div className="relative min-h-0 flex-1 overflow-y-auto rounded-2xl bg-black/20 p-4">
         <AnimatePresence>
-          {mode && (
+          {provider && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -126,10 +135,12 @@ export default function SolverPanel() {
             >
               <span
                 className={`h-1.5 w-1.5 rounded-full ${
-                  mode === "live" ? "bg-quark-3" : "bg-amber"
+                  provider === "demo" ? "bg-amber" : "bg-quark-3"
                 }`}
               />
-              {mode === "live" ? "Claude reasoning" : "Demo mode · local engine"}
+              {provider === "demo"
+                ? PROVIDER_LABEL.demo
+                : `Solved by ${PROVIDER_LABEL[provider] ?? provider}`}
             </motion.div>
           )}
         </AnimatePresence>

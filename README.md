@@ -21,10 +21,11 @@ Quark picks the best available reasoning backend automatically:
 
 | Priority | Backend | When |
 | --- | --- | --- |
-| 1 | **Anthropic** (`claude-opus-4-8`, adaptive thinking) | `ANTHROPIC_API_KEY` is set |
-| 2 | **OpenRouter** (gateway → Claude, OpenAI-compatible) | `OPENROUTER_API_KEY` is set |
-| 3 | **Groq** (fast open models, OpenAI-compatible) | `GROQ_API_KEY` is set |
-| 4 | **Demo mode** (local math engine) | no key set |
+| 1 | **Google Gemini** (`gemini-2.5-flash` by default) | `GEMINI_API_KEY` is set |
+| 2 | **Anthropic** (`claude-opus-4-8`, adaptive thinking) | `ANTHROPIC_API_KEY` is set |
+| 3 | **OpenRouter** (gateway → Claude, OpenAI-compatible) | `OPENROUTER_API_KEY` is set |
+| 4 | **Groq** (fast open models, OpenAI-compatible) | `GROQ_API_KEY` is set |
+| 5 | **Demo mode** (local math engine) | no key set |
 
 The key never reaches the browser — all AI calls run server-side in
 `app/api/solve/route.ts` and stream back to the client.
