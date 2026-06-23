@@ -1,0 +1,127 @@
+@import "tailwindcss";
+@import "katex/dist/katex.min.css";
+
+@theme {
+  --color-void: #050507;
+  --color-ink: #0a0b10;
+  --color-panel: #0f1118;
+  --color-mist: #9aa3b2;
+  --color-chalk: #e8ecf4;
+
+  --color-quark-1: #6d5efc;
+  --color-quark-2: #b14bff;
+  --color-quark-3: #2bd9d0;
+  --color-amber: #ffb86b;
+
+  --font-display: var(--font-display), "Georgia", serif;
+  --font-sans: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", monospace;
+
+  --animate-aurora: aurora 18s ease-in-out infinite;
+  --animate-float: float 9s ease-in-out infinite;
+}
+
+@keyframes aurora {
+  0%, 100% { transform: translate3d(-6%, -4%, 0) scale(1.05); opacity: 0.55; }
+  50% { transform: translate3d(6%, 4%, 0) scale(1.15); opacity: 0.8; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-12px); }
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background-color: var(--color-void);
+  color: var(--color-chalk);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  font-family: var(--font-sans);
+  overflow-x: hidden;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-quark-2) 40%, transparent);
+  color: white;
+}
+
+/* Slim, cinematic scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--color-quark-1) 40%, transparent);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.glass {
+  background: linear-gradient(
+    160deg,
+    color-mix(in srgb, white 7%, transparent),
+    color-mix(in srgb, white 2%, transparent)
+  );
+  backdrop-filter: blur(20px);
+  border: 1px solid color-mix(in srgb, white 10%, transparent);
+}
+
+.glow-ring {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--color-quark-1) 30%, transparent),
+    0 24px 80px -28px color-mix(in srgb, var(--color-quark-2) 55%, transparent);
+}
+
+.text-gradient {
+  background: linear-gradient(
+    100deg,
+    var(--color-chalk) 0%,
+    var(--color-quark-3) 40%,
+    var(--color-quark-2) 70%,
+    var(--color-quark-1) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.grid-noise {
+  background-image:
+    linear-gradient(color-mix(in srgb, white 4%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, white 4%, transparent) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black 30%, transparent 75%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* KaTeX should inherit the chalk color and not overflow */
+.katex {
+  color: var(--color-chalk);
+  font-size: 1.05em;
+}
+.katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 0;
+}
