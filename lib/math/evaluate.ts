@@ -4,18 +4,21 @@ const math: MathJsInstance = create(all, {
   number: "number",
 });
 
-// Limit the function surface a little so a typo can't run forever, but keep
-// the rich set students actually need (trig, logs, units, matrices, etc.).
-const FORBIDDEN = new Set(["import", "createUnit", "evaluate", "parse", "simplify", "derivative"]);
-const guarded = Object.fromEntries(
-  Array.from(FORBIDDEN).map((name) => [
-    name,
-    function () {
-      throw new Error(`"${name}" is disabled in the instant pad`);
+// Harden the instance: `import` and `createUnit` are the only mathjs functions
+// that can mutate the instance or inject behavior, so we disable just those.
+// Everything students actually need — evaluate, simplify, derivative, trig,
+// units, matrices, function definitions for the plotter — stays available.
+math.import(
+  {
+    import: function () {
+      throw new Error("import is disabled");
     },
-  ]),
+    createUnit: function () {
+      throw new Error("createUnit is disabled");
+    },
+  },
+  { override: true },
 );
-math.import(guarded, { override: true });
 
 export interface EvalResult {
   ok: boolean;
@@ -33,6 +36,7 @@ export function evaluate(expr: string): EvalResult {
     if (typeof raw === "function") {
       return { ok: false, error: "Enter a value, not a function" };
     }
+    if (raw === undefined) return { ok: false };
     return { ok: true, value: format(raw), raw };
   } catch (err) {
     return { ok: false, error: (err as Error).message };
