@@ -1,0 +1,7 @@
+# Dependencies for homework_tracker.py
+playwright>=1.40.0
+requests>=2.31.0
+
+# Optional: lets the script read credentials from a local .env file.
+# The script works fine without it.
+python-dotenv>=1.0.0
