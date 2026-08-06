@@ -1,0 +1,12 @@
+# Credentials -- never commit these
+.env
+
+# Debug output from homework_tracker.py
+assignment_center_debug.png
+tracker.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
