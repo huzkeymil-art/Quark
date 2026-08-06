@@ -59,9 +59,16 @@ except ImportError:
 # Configuration
 # ---------------------------------------------------------------------------
 
-# The school's Blackbaud portal. Override with the SCHOOL_BASE_URL env var if
-# your school uses a different subdomain (e.g. https://bga.myschoolapp.com).
-DEFAULT_SCHOOL_BASE_URL = "https://mybga.myschoolapp.com"
+# The school's Blackbaud portal. Override with the SCHOOL_BASE_URL env var.
+DEFAULT_SCHOOL_BASE_URL = "https://battlegroundacademy.myschoolapp.com"
+
+# Where the Assignment Center lives. Blackbaud has shipped two generations of
+# this page and schools sit on one or the other, so we try both in order.
+# To pin it, set ASSIGNMENT_CENTER_URL to the address bar from your browser.
+ASSIGNMENT_CENTER_PATHS = [
+    "/lms-assignment/assignment-center/student?svcid=edu",  # current LMS
+    "/app/student#studentmyday/assignment-center",          # legacy portal
+]
 
 # Notion's REST API. "2022-06-28" is the stable, widely documented version.
 NOTION_API_BASE = "https://api.notion.com/v1"
@@ -415,9 +422,14 @@ def log_into_portal(page: Page, base_url: str, username: str, password: str) -> 
 # ---------------------------------------------------------------------------
 
 ASSIGNMENT_ITEM_SELECTORS = [
+    # Legacy portal (/app/student#studentmyday/assignment-center)
     "#assignment-center-assignment-items .row",
     "#assignment-center-assignment-items > div",
     "div[id^='assignmentCenter'] .row",
+    # Current LMS (/lms-assignment/assignment-center/student), a SKY UX app
+    "[data-testid*='assignment-card']",
+    "[data-testid*='assignment-item']",
+    "[class*='assignment-card']",
     "sky-repeater-item",
     ".sky-list-item",
     "[class*='assignment-item']",
@@ -531,66 +543,89 @@ def scrape_assignments_from_dom(page: Page) -> list[Assignment]:
     return assignments
 
 
-def fetch_assignments_from_api(page: Page, days_ahead: int) -> list[Assignment]:
-    """
-    Fallback: ask Blackbaud's own JSON endpoint for the assignment list.
+# ---------------------------------------------------------------------------
+# Reading assignments out of Blackbaud's JSON
+#
+# The two generations of the Assignment Center use different endpoints with
+# different key names, so instead of hardcoding one shape we look for keys that
+# mean "title" / "class" / "due date" in whatever JSON we get hold of.
+# ---------------------------------------------------------------------------
 
-    The Assignment Center page populates itself from this endpoint, and our
-    browser context is already authenticated, so reusing it is far more stable
-    than parsing markup that changes between portal versions.
-    """
-    today = date.today()
-    end = today + timedelta(days=days_ahead)
-    endpoint = (
-        f"{page.url.split('/app')[0]}/api/DataDirect/AssignmentCenterAssignments/"
-        f"?format=json&filter=1&persona=2&statusList=&sectionList="
-        f"&dateStart={today.month}/{today.day}/{today.year}"
-        f"&dateEnd={end.month}/{end.day}/{end.year}"
-    )
+JSON_TITLE_KEYS = (
+    "short_description", "shortDescription", "assignment_title",
+    "assignmentShortDescription", "AssignmentShortDescription", "title",
+)
+JSON_CLASS_KEYS = (
+    "groupname", "GroupName", "group_name", "section_title", "sectionTitle",
+    "class_name", "className", "course", "SectionTitle",
+)
+JSON_DUE_KEYS = (
+    "date_due", "dateDue", "DateDue", "due_date", "dueDate",
+    "AssignmentDueDate", "assignmentDueDate",
+)
+JSON_STATUS_KEYS = (
+    "status", "Status", "assignment_status_text", "statusDescription",
+    "AssignmentStatus",
+)
 
-    log("Falling back to the portal's assignment API")
-    try:
-        response = page.context.request.get(
-            endpoint, headers={"Accept": "application/json"}, timeout=NAVIGATION_TIMEOUT_MS
-        )
-        if not response.ok:
-            warn(f"Assignment API returned HTTP {response.status}")
-            return []
-        payload = response.json()
-    except (PlaywrightError, ValueError) as exc:
-        warn(f"Could not read the assignment API: {exc}")
+
+def _first_key(record: dict, keys: Iterable[str]) -> Any:
+    """Return the first present, non-empty value among `keys`."""
+    for key in keys:
+        value = record.get(key)
+        if value not in (None, "", []):
+            return value
+    return None
+
+
+def _find_assignment_records(node: Any, found: list[list[dict]]) -> list[list[dict]]:
+    """
+    Walk arbitrary JSON and collect every list that looks like assignments.
+
+    "Looks like assignments" means: a list of objects where at least one object
+    carries both a title-ish key and a due-date-ish key. Requiring both keeps
+    us from mistaking a list of course sections for a list of homework.
+    """
+    if isinstance(node, list):
+        records = [item for item in node if isinstance(item, dict)]
+        if records and any(
+            _first_key(r, JSON_TITLE_KEYS) and _first_key(r, JSON_DUE_KEYS)
+            for r in records
+        ):
+            found.append(records)
+        for item in node:
+            _find_assignment_records(item, found)
+    elif isinstance(node, dict):
+        for value in node.values():
+            _find_assignment_records(value, found)
+    return found
+
+
+def assignments_from_json(payload: Any) -> list[Assignment]:
+    """Pull assignments out of any Blackbaud JSON response we can recognise."""
+    groups = _find_assignment_records(payload, [])
+    if not groups:
         return []
 
-    # The endpoint returns a bare list; some versions wrap it in an object.
-    if isinstance(payload, dict):
-        payload = payload.get("Assignments") or payload.get("value") or []
-    if not isinstance(payload, list):
-        return []
+    # If several lists matched, trust the biggest one.
+    records = max(groups, key=len)
 
     assignments: list[Assignment] = []
-    for item in payload:
-        if not isinstance(item, dict):
-            continue
-
-        title = squash_whitespace(
-            item.get("short_description")
-            or item.get("assignment_title")
-            or item.get("title")
-        )
+    for record in records:
+        title = squash_whitespace(str(_first_key(record, JSON_TITLE_KEYS) or ""))
         if not title:
             continue
 
-        class_name = squash_whitespace(
-            item.get("groupname") or item.get("section_title") or item.get("class_name")
-        ) or "Unknown Class"
-
-        due_date = parse_due_date(
-            item.get("date_due") or item.get("due_date") or item.get("dateDue")
-        )
-
-        status = squash_whitespace(item.get("status") or item.get("assignment_status_text"))
+        status = squash_whitespace(str(_first_key(record, JSON_STATUS_KEYS) or ""))
         if status and looks_completed(status):
             continue
+
+        class_name = (
+            squash_whitespace(str(_first_key(record, JSON_CLASS_KEYS) or ""))
+            or "Unknown Class"
+        )
+        due_raw = _first_key(record, JSON_DUE_KEYS)
+        due_date = parse_due_date(str(due_raw) if due_raw is not None else None)
 
         assignments.append(
             Assignment(title=title, class_name=class_name, due_date=due_date)
@@ -599,15 +634,100 @@ def fetch_assignments_from_api(page: Page, days_ahead: int) -> list[Assignment]:
     return assignments
 
 
+def fetch_assignments_from_api(
+    context: Any, base_url: str, days_ahead: int
+) -> list[Assignment]:
+    """
+    Last resort: call the legacy DataDirect endpoint directly.
+
+    Only reached when neither the page markup nor the page's own network
+    traffic gave us anything. Uses the authenticated browser context, so no
+    separate login is needed.
+    """
+    today = date.today()
+    end = today + timedelta(days=days_ahead)
+    endpoint = (
+        f"{base_url.rstrip('/')}/api/DataDirect/AssignmentCenterAssignments/"
+        f"?format=json&filter=1&persona=2&statusList=&sectionList="
+        f"&dateStart={today.month}/{today.day}/{today.year}"
+        f"&dateEnd={end.month}/{end.day}/{end.year}"
+    )
+
+    log("Trying the legacy assignment API directly")
+    try:
+        response = context.request.get(
+            endpoint, headers={"Accept": "application/json"}, timeout=NAVIGATION_TIMEOUT_MS
+        )
+        if not response.ok:
+            warn(f"Assignment API returned HTTP {response.status}")
+            return []
+        return assignments_from_json(response.json())
+    except (PlaywrightError, ValueError) as exc:
+        warn(f"Could not read the assignment API: {exc}")
+        return []
+
+
+def _open_assignment_center(page: Page, url: str) -> list[Any]:
+    """
+    Navigate to the Assignment Center, recording the JSON it loads on the way.
+
+    We don't know which endpoint this school's portal calls -- the old and new
+    Assignment Centers differ -- so rather than guessing we listen to whatever
+    the page fetches for itself. Returns the captured JSON payloads.
+    """
+    captured: list[Any] = []
+
+    def on_response(response: Any) -> None:
+        if "assignment" not in response.url.lower():
+            return
+        try:
+            content_type = (response.headers or {}).get("content-type", "")
+            if "json" in content_type.lower():
+                captured.append(response.json())
+        except Exception:
+            # Bodies aren't always readable (redirects, aborted requests).
+            # A miss here just means we fall through to the next strategy.
+            pass
+
+    page.on("response", on_response)
+    try:
+        page.goto(url, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT_MS)
+        try:
+            page.wait_for_load_state("networkidle", timeout=NAVIGATION_TIMEOUT_MS)
+        except PlaywrightTimeoutError:
+            # A chatty single-page app may never go fully idle.
+            pass
+        # Give late XHRs a moment to land before we stop listening.
+        page.wait_for_timeout(2_000)
+    finally:
+        page.remove_listener("response", on_response)
+
+    return captured
+
+
 def collect_assignments(
     base_url: str,
     username: str,
     password: str,
     days_ahead: int,
     headless: bool = True,
+    assignment_center_url: Optional[str] = None,
 ) -> list[Assignment]:
-    """Drive the whole browser session and hand back the assignment list."""
+    """
+    Drive the whole browser session and hand back the assignment list.
+
+    Tries, in order, until something yields assignments:
+      1. Scraping the rendered page.
+      2. The JSON the page loaded for itself.
+      3. The legacy DataDirect endpoint.
+    """
     assignments: list[Assignment] = []
+    base = base_url.rstrip("/")
+
+    if assignment_center_url:
+        candidate_urls = [assignment_center_url]
+    else:
+        candidate_urls = [f"{base}{path}" for path in ASSIGNMENT_CENTER_PATHS]
 
     with sync_playwright() as playwright:
         log("Launching headless Chromium" if headless else "Launching Chromium (visible)")
@@ -617,32 +737,35 @@ def collect_assignments(
         page.set_default_timeout(ELEMENT_TIMEOUT_MS)
 
         try:
-            log_into_portal(page, base_url, username, password)
+            log_into_portal(page, base, username, password)
 
-            assignment_center_url = (
-                f"{base_url.rstrip('/')}/app/student#studentmyday/assignment-center"
-            )
-            log("Opening the Assignment Center")
-            page.goto(
-                assignment_center_url,
-                wait_until="domcontentloaded",
-                timeout=NAVIGATION_TIMEOUT_MS,
-            )
-            try:
-                page.wait_for_load_state("networkidle", timeout=NAVIGATION_TIMEOUT_MS)
-            except PlaywrightTimeoutError:
-                pass
+            for url in candidate_urls:
+                log(f"Opening the Assignment Center: {url}")
+                captured = _open_assignment_center(page, url)
 
-            assignments = scrape_assignments_from_dom(page)
+                assignments = scrape_assignments_from_dom(page)
+                if assignments:
+                    break
 
-            if not assignments:
-                # Save the page so you can inspect why the selectors missed.
+                # The markup didn't match, but the page still had to fetch its
+                # data from somewhere -- read that instead.
+                for payload in captured:
+                    assignments = assignments_from_json(payload)
+                    if assignments:
+                        ok("Read the assignments from the page's own API call")
+                        break
+                if assignments:
+                    break
+
+                # Save the page so you can see why the selectors missed.
                 try:
                     page.screenshot(path=DEBUG_SCREENSHOT_PATH, full_page=True)
                     warn(f"Saved a debug screenshot to {DEBUG_SCREENSHOT_PATH}")
                 except PlaywrightError:
                     pass
-                assignments = fetch_assignments_from_api(page, days_ahead)
+
+            if not assignments:
+                assignments = fetch_assignments_from_api(context, base, days_ahead)
 
         finally:
             # Always close the browser, even when something above blew up.
@@ -923,6 +1046,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     notion_token = read_env("NOTION_TOKEN")
     notion_database_id = read_env("NOTION_DATABASE_ID")
     base_url = read_env("SCHOOL_BASE_URL") or DEFAULT_SCHOOL_BASE_URL
+    # Optional: paste your browser's address bar here to skip the guessing.
+    assignment_center_url = read_env("ASSIGNMENT_CENTER_URL")
 
     required = {"SCHOOL_USERNAME": username, "SCHOOL_PASSWORD": password}
     if not args.dry_run:
@@ -943,6 +1068,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             password=password,           # type: ignore[arg-type]
             days_ahead=args.days_ahead,
             headless=not args.show_browser,
+            assignment_center_url=assignment_center_url,
         )
     except PlaywrightTimeoutError as exc:
         fail(f"The portal took too long to respond: {exc}")
